@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asteroids Game</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; }
+        canvas { display: block; background-color: black; }
+        #slider-container { position: fixed; top: 10px; left: 10px; z-index: 10; color: white; }
+        #restart-button { position: fixed; top: 10px; right: 10px; z-index: 10; }
+        #intro-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            color: green;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            text-align: center;
+            z-index: 100;
+        }
+        #intro-text {
+            font-size: 20px;
+            white-space: pre-wrap;
+        }
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        .typewriter::after {
+            content: '|';
+            animation: blink 1s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="intro-container">
+        <div id="intro-text"></div>
+    </div>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="slider-container">
+        <label for="realismSlider">Realism: </label>
+        <input type="range" id="realismSlider" min="1" max="100" value="50">
+        <span id="realismValue">50</span>
+    </div>
+    <button id="restart-button">Restart Game</button>
+
+    <script>
+        // Typewriter effect
+        function typeWriter(text, container, speed = 50) {
+            let i = 0;
+            function type() {
+                if (i < text.length) {
+                    container.innerHTML += text.charAt(i);
+                    i++;
+                    setTimeout(type, speed);
+                } else {
+                    setTimeout(() => {
+                        document.getElementById('intro-container').style.display = 'none';
+                        document.getElementById('gameCanvas').style.display = 'block';
+                    }, 2000);
+                }
+            }
+            type();
+        }
+
+        // Introductory text
+        const introText = `
+        WELCOME TO ASTEROID ESCAPE
+
+        In the distant future, humanity has colonized the far reaches of space. 
+        You are the pilot of the last remaining spaceship on a mission to escape 
+        an asteroid field.
+
+        Use the arrow keys to navigate and the spacebar to shoot. Good luck, pilot!
+        `;
+
+        // Initialize intro
+        const introContainer = document.getElementById('intro-container');
+        const introTextElement = document.getElementById('intro-text');
+
+        typeWriter(introText, introTextElement);
+
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const realismSlider = document.getElementById("realismSlider");
+        const realismValue = document.getElementById("realismValue");
+        const restartButton = document.getElementById("restart-button");
+
+        // Background stars
+        const stars = [];
+        for (let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2
+            });
+        }
+
+        // Spaceship setup
+        const ship = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            angle: 0,
+            speed: 0,
+            turning: 0,
+            thrusting: false,
+            width: 20,
+            height: 20,
+            bullets: [],
+            move: function () {
+                if (this.thrusting) {
+                    this.speed += 0.1;
+                } else {
+                    this.speed *= 0.99; // Friction
+                }
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+                this.x = (this.x + canvas.width) % canvas.width;
+                this.y = (this.y + canvas.height) % canvas.height;
+            },
+            draw: function () {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.beginPath();
+                ctx.moveTo(0, -this.height / 2);
+                ctx.lineTo(this.width / 2, this.height / 2);
+                ctx.lineTo(-this.width / 2, this.height / 2);
+                ctx.closePath();
+                ctx.strokeStyle = "green"; // Green outline for the ship
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = this.thrusting ? "red" : "white";
+                ctx.fill();
+                ctx.restore();
+            },
+            shoot: function () {
+                const bullet = {
+                    x: this.x,
+                    y: this.y,
+                    angle: this.angle,
+                    speed: 5,
+                    move: function () {
+                        this.x += Math.cos(this.angle) * this.speed;
+                        this.y += Math.sin(this.angle) * this.speed;
+                    },
+                    draw: function () {
+                        ctx.save();
+                        ctx.translate(this.x, this.y);
+                        ctx.rotate(this.angle);
+                        ctx.fillStyle = "yellow";
+                        ctx.fillRect(-2, -2, 4, 4);
+                        ctx.restore();
+                    }
+                };
+                this.bullets.push(bullet);
+            }
+        };
+
+        // Asteroid setup
+        let asteroids = [];
+        const maxAsteroids = 10; // Initial maximum number of asteroids
+
+        function createAsteroid() {
+            const size = Math.random() * 30 + 10; // Asteroids with random size between 10 and 40
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            const speedX = Math.random() * 2 - 1; // Horizontal speed
+            const speedY = Math.random() * 2 - 1; // Vertical speed
+            const angle = Math.random() * 2 * Math.PI; // Random rotation angle
+            const rotationSpeed = Math.random() * 0.02 - 0.01; // Random rotation speed
+
+            asteroids.push({ x, y, size, speedX, speedY, angle, rotationSpeed });
+        }
+
+        // Create asteroids based on realism level
+        function updateAsteroids() {
+            asteroids = []; // Clear previous asteroids
+            const numAsteroids = Math.max(1, Math.floor(maxAsteroids * (realismSlider.value / 100)));
+            for (let i = 0; i < numAsteroids; i++) {
+                createAsteroid();
+            }
+        }
+
+        // Update asteroid positions
+        function moveAsteroids() {
+            for (const asteroid of asteroids) {
+                asteroid.x += asteroid.speedX;
+                asteroid.y += asteroid.speedY;
+                asteroid.angle += asteroid.rotationSpeed;
+
+                // Wrap asteroids around the canvas
+                if (asteroid.x < 0) asteroid.x = canvas.width;
+                if (asteroid.x > canvas.width) asteroid.x = 0;
+                if (asteroid.y < 0) asteroid.y = canvas.height;
+                if (asteroid.y > canvas.height) asteroid.y = 0;
+            }
+        }
+
+        // Draw asteroids
+        function drawAsteroids() {
+            for (const asteroid of asteroids) {
+                ctx.save();
+                ctx.translate(asteroid.x, asteroid.y);
+                ctx.rotate(asteroid.angle);
+                ctx.beginPath();
+                ctx.arc(0, 0, asteroid.size, 0, 2 * Math.PI);
+                ctx.fillStyle = "gray";
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // Keyboard events
+        const keys = {
+            left: false,
+            right: false,
+            up: false,
+            space: false
+        };
+
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowLeft") keys.left = true;
+            if (e.key === "ArrowRight") keys.right = true;
+            if (e.key === "ArrowUp") keys.up = true;
+            if (e.key === " ") keys.space = true;
+        });
+
+        document.addEventListener("keyup", (e) => {
+            if (e.key === "ArrowLeft") keys.left = false;
+            if (e.key === "ArrowRight") keys.right = false;
+            if (e.key === "ArrowUp") keys.up = false;
+            if (e.key === " ") keys.space = false;
+        });
+
+        // Handle ship movement
+        function updateShip() {
+            if (keys.left) ship.angle -= 0.1;
+            if (keys.right) ship.angle += 0.1;
+            if (keys.up) ship.thrusting = true;
+            else ship.thrusting = false;
+            if (keys.space) ship.shoot();
+            ship.move();
+        }
+
+        // Update realism value
+        realismSlider.addEventListener("input", () => {
+            realismValue.textContent = realismSlider.value;
+            updateAsteroids();
+        });
+
+        // Collision detection
+        function detectCollisions() {
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                const asteroid = asteroids[i];
+                const dist = Math.hypot(ship.x - asteroid.x, ship.y - asteroid.y);
+                if (dist < asteroid.size + ship.width / 2) {
+                    // Collision detected, reset ship position
+                    restartGame();
+                    alert("Collision! Resetting ship position.");
+                }
+
+                // Bullet collision detection
+                for (let j = ship.bullets.length - 1; j >= 0; j--) {
+                    const bullet = ship.bullets[j];
+                    const bulletDist = Math.hypot(bullet.x - asteroid.x, bullet.y - asteroid.y);
+                    if (bulletDist < asteroid.size) {
+                        // Remove asteroid and bullet on collision
+                        asteroids.splice(i, 1);
+                        ship.bullets.splice(j, 1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Update bullets
+        function updateBullets() {
+            for (const bullet of ship.bullets) {
+                bullet.move();
+            }
+            // Remove bullets that are out of bounds
+            ship.bullets = ship.bullets.filter(bullet => bullet.x >= 0 && bullet.x <= canvas.width && bullet.y >= 0 && bullet.y <= canvas.height);
+        }
+
+        // Draw bullets
+        function drawBullets() {
+            for (const bullet of ship.bullets) {
+                bullet.draw();
+            }
+        }
+
+        // Restart game
+        function restartGame() {
+            ship.x = canvas.width / 2;
+            ship.y = canvas.height / 2;
+            ship.speed = 0;
+            ship.angle = 0;
+            ship.bullets = [];
+            updateAsteroids();
+        }
+
+        restartButton.addEventListener("click", restartGame);
+
+        // Draw background stars
+        function drawStars() {
+            for (const star of stars) {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, 2 * Math.PI);
+                ctx.fillStyle = "white";
+                ctx.fill();
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawStars();
+            updateShip();
+            updateBullets();
+            moveAsteroids();
+            detectCollisions();
+            ship.draw();
+            drawBullets();
+            drawAsteroids();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Initialize game
+        updateAsteroids();
+        gameLoop();
+    </script>
+</body>
+</html>
